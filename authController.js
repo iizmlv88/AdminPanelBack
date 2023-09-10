@@ -1,100 +1,221 @@
-const User = require ('./modules/User')
-const Role = require ('./modules/Role')
+const User = require('./modules/User');
+const Role = require('./modules/Role');
+const bcrypt = require('bcrypt');
+const Token = require('./modules/Token')
 
-const {validationResult} = require('express-validator')
-const jwt = require('jsonwebtoken')
-const { secret } = require('./config')
+// !
+const News = require('./modules/News');
 
-const bcrypt = require('bcrypt')
+const { validationResult } = require('express-validator');
+const jwt = require('jsonwebtoken');
+const { hash_password, jwt_access_secret, jwt_refresh_secret } = require('./config');
 
-
-const genereteAccessToken = (id, username, roles) =>{
+const genereteAccessAndRefreshToken = (id, email, firstname, lastname, gender, phoneNumber, roles) => {
     const payload = {
         id,
-        username,
+        firstname,
+        lastname,
+        email,
+        gender,
+        phoneNumber,
         roles
+    };
+    const accessToken = jwt.sign(payload, jwt_access_secret, { expiresIn: '1h' });
+    const refreshToken = jwt.sign(payload, jwt_refresh_secret, { expiresIn: '3d' });
+    return {
+        accessToken,
+        refreshToken
     }
-    return jwt.sign(payload, secret, { expiresIn: '1h'})
-}
-
-
+};
 class authController {
-    async registration(req, res){
+    async registration(req, res) {
         try {
-            // validationj
-            // const errors = validationResult(req)
-            // if(!errors.isEmpty()){
-            //     return res.status(400).json({message: 'помилка реєстрації', errors})
-            // }
-             const errors = validationResult(req);
+            const errors = validationResult(req);
             if (!errors.isEmpty()) {
                 return res.status(400).json({ message: 'помилка реєстрації', errors: errors.array() });
             }
-// candidat
-            const {username, password} = req.body
-            const condidate = await User.findOne({username})
-            if(condidate){
-                return res.status(400).json({message: 'користувач з таким іменем вже існує'})
+
+            const { email, password } = req.body;
+            const candidate = await User.findOne({ email });
+            if (candidate) {
+                return res.status(400).json({ message: 'користувач з таким іменем вже існує' });
             }
-            // hash pas
-            const hashPassword = bcrypt.hashSync(password, 8);
-            const userRole = await Role.findOne({value: 'USER'})
-            const nameuser = await Role.findOne({value: 'USER'})
-            const surname = await Role.findOne({value: 'USER'})
-            const email = await Role.findOne({value: 'USER'})
-            const confirmPassword = await Role.findOne({value: 'USER'})
-            const gender = await Role.findOne({value: 'USER'})
-            const phoneNumber = await Role.findOne({value: 'USER'})
+            const hashPassword = bcrypt.hashSync(password, hash_password);
+            const userRole = await Role.findOne({ value: 'USER' });
+
             // const userRole = await Role.findOne({value: 'ADMINISTRATOR'})
-            const user = new User({username, password: hashPassword, roles: [userRole.value], nameuser, surname, email, confirmPassword, gender, phoneNumber})
-            await user.save()
-            return res.json({message: 'користувач успішно зареєстрований'})
+
+
+            const user = new User({
+                password: hashPassword,
+                roles: [userRole.value],
+                firstname: req.body.firstname,
+                lastname: req.body.lastname,
+                email: req.body.email,
+                confirmPassword: req.body.confirmPassword,
+                gender: req.body.gender,
+                phoneNumber: req.body.phoneNumber
+            });
+            await user.save();
+            return res.json({ message: 'користувач успішно зареєстрований' });
         } catch (error) {
             console.log(error);
-            res.status(400).json({message: 'reg er'})
+            res.status(400).json({ message: 'reg er' });
         }
     }
 
-    async login(req, res){
+    async login(req, res) {
         try {
-            const {username, password} = req.body
-            // find user
-            const user = await User.findOne({username})
-            if(!user){
-                return res.status(400).json({message: `korustyvachs ${username} ne isnye`})
+            const { email, password } = req.body;
+            const user = await User.findOne({ email });
+            if (!user) {
+                return res.status(400).json({ message: `korustyvachs ${email} ne isnye` });
             }
-            console.log(user);
-            // check password
-            const validPassword = bcrypt.compareSync(password, user.password)
+            
+            const validPassword = bcrypt.compareSync(password, user.password);
             if (!validPassword) {
-                return res.status(400).json({message: `nevirnuy parol`})
+                return res.status(400).json({ message: `nevirnuy parol` });
             }
-            console.log(validPassword);
-            //  return res.status(400).json({message: `ok`})
-            //  ctreate jqt
-            const token = genereteAccessToken(user._id, user.username, user.roles)
-            console.log(token);
-            return res.json({token})
 
+            const {accessToken, refreshToken} = genereteAccessAndRefreshToken(user._id, user.firstname, user.lastname, user.email, user.gender, user.phoneNumber, user.roles);
+
+            let refresh = await Token.findOne( {user: user._id})
+            if (!refresh) {
+                refresh = new Token({user: user._id, refreshToken})
+            } else {
+                refresh.refreshToken = refreshToken
+            }
+
+            // const refresh = new Token({user: user._id, refreshToken})
+            // refresh.save()
+            await refresh.save()
+            return res.json({ accessToken, refreshToken });
         } catch (error) {
             console.log(error);
-            return res.status(400).json({message: 'login er'})
+            return res.status(400).json({ message: 'login er' });
         }
     }
 
-    async getUsers(req, res){
+    async getUsers(req, res) {
         try {
-
-            // const userRole = new Role()
-            // const adminRole = new Role({value: 'ADMINISTRATOR'})
-            // await userRole.save()
-            // await adminRole.save()
-
-            res.json('server work')
+            const users = await User.find();
+            res.json(users);
         } catch (error) {
             console.log(error);
+            return res.status(400).json({ message: 'getUsers er' });
         }
+    }
+ 
+async deleteUser(req, res) {
+    try {
+        const { id } = req.params;
+
+        const deletedUser = await User.findByIdAndDelete(id);
+        if (!deletedUser) {
+            return res.status(404).json({ message: 'Користувача не знайдено' });
+        }
+
+        return res.json({ message: 'Користувача успішно видалено', deletedUser });
+    } catch (error) {
+        console.error(error);
+        return res.status(400).json({ message: 'Помилка видалення користувача' });
     }
 }
 
-module.exports = new authController()
+
+async refresh(req, res) {
+    try {
+        const { refreshToken } = req.body;
+        const existiogToken = await Token.findOne({refreshToken})
+        if (!existiogToken) {
+            return res.status(401).json({message: 'невірний фбо не дійсний рефреш токен'})
+        }
+        const decodedPayload = jwt.verify(refreshToken, jwt_refresh_secret)
+
+        const {accessToken, refreshToken: newRefreshToken} = genereteAccessAndRefreshToken(
+            decodedPayload.id,
+            decodedPayload.firstname,
+            decodedPayload.lastname,
+            decodedPayload.email,
+            decodedPayload.gender,
+            decodedPayload.phoneNumber,
+            decodedPayload.roles
+            )
+        
+            existiogToken.refreshToken = newRefreshToken
+            await existiogToken.save()
+        
+        return res.json({ accessToken, refreshToken: newRefreshToken });
+    } catch (error) {
+        console.error(error);
+        return res.status(400).json({ message: 'Помилка token error' });
+    }
+}
+
+
+async logout(req, res) {
+    try {
+        const { userId } = req.body;
+
+        const token = await Token.findOneAndDelete( {user: userId})
+        if(!token){
+            return res.status(400).json({message: 'користувача не знайдено з таким айді'})
+        }
+
+        return res.json({message: 'ви вийшли з системи'});
+    } catch (error) {
+        console.error(error);
+        return res.status(400).json({ message: 'logout error' });
+    }
+}
+
+async changePassword(req, res) {
+    try {
+        const { userId, currentPassword, newPassword, confirmNewPassword } = req.body;
+
+
+         const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array() });
+        }
+
+
+        const user = await User.findById(userId)
+        if(!user){
+            return res.status(400).json({message: 'користувача не знайдено'})
+        }
+        const validPassword = bcrypt.compareSync(currentPassword, user.password)
+        if(!validPassword){
+            return res.status(400).json({message: 'невірний поточний пароль'})
+        }
+
+        const newHashedPassowrd = bcrypt.hashSync(newPassword, hash_password)
+
+        user.password = newHashedPassowrd
+        await user.save()
+
+        return res.json({message: 'пароль змінено'});
+    } catch (error) {
+        console.error(error);
+        return res.status(400).json({ message: 'changePassword error' });
+    }
+}
+
+
+
+// !
+  async createNews(req, res) {
+    try {
+      const { title, content } = req.body;
+      const news = new News({ title, content });
+      await news.save();
+      return res.json({ message: 'Новину створено успішно' });
+    } catch (error) {
+      console.error(error);
+      return res.status(400).json({ message: 'Помилка створення новини' });
+    }
+  }
+
+}
+
+module.exports = new authController();
