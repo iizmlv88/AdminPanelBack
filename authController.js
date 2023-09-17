@@ -2,13 +2,12 @@ const User = require('./modules/User');
 const Role = require('./modules/Role');
 const bcrypt = require('bcrypt');
 const Token = require('./modules/Token')
-
-// !
 const News = require('./modules/News');
 
 const { validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
-const { hash_password, jwt_access_secret, jwt_refresh_secret } = require('./config');
+const { hash_password, jwt_access_secret, jwt_refresh_secret, smtp_host, smtp_password, smtp_port, smtp_user } = require('./config');
+const nodemailer = require('nodemailer');
 
 const genereteAccessAndRefreshToken = (id, email, firstname, lastname, gender, phoneNumber, roles) => {
     const payload = {
@@ -45,7 +44,6 @@ class authController {
 
             // const userRole = await Role.findOne({value: 'ADMINISTRATOR'})
 
-
             const user = new User({
                 password: hashPassword,
                 roles: [userRole.value],
@@ -57,7 +55,40 @@ class authController {
                 phoneNumber: req.body.phoneNumber
             });
             await user.save();
-            return res.json({ message: 'користувач успішно зареєстрований' });
+
+            const transporter = nodemailer.createTransport( {
+                host: smtp_host,
+                port: smtp_port,
+                service: 'gmail',
+                secure: false,
+                auth: {
+                    user: smtp_user,
+                    pass: smtp_password
+                },
+                tls: {
+                    rejectUnauthorized: false,
+                },
+            })
+
+            const activationLink = `http://localhost:5000/auth/activate/${user._id}`
+
+            const mailOptions = {
+                to: email,
+                from: smtp_user,
+                subject: 'activate your account',
+                text: `дякуэмо за рээстрацію. активуйте свій акаунт перейшовши за посиланням \n\n  ${activationLink}\n\n якщо ви не реєструвалися на нашому сайті проігноруйте цей лист.`,
+                
+            }
+
+            transporter.sendMail(mailOptions, (err)=>{
+                if (err) {
+                    console.log(err);
+                    return res.status(500).json({message: 'не вдалося надісо=лати лист для активації'})
+                }
+                return res.json({message: 'лист для активації надіслано на вашу адресу'})
+            })
+
+            // return res.json({ message: 'користувач успішно зареєстрований' });
         } catch (error) {
             console.log(error);
             res.status(400).json({ message: 'reg er' });
@@ -70,6 +101,10 @@ class authController {
             const user = await User.findOne({ email });
             if (!user) {
                 return res.status(400).json({ message: `korustyvachs ${email} ne isnye` });
+            }
+
+            if(!user.isActivated){
+                return res.status(400).json({ message: `ваш оакаунт не активовано` });
             }
             
             const validPassword = bcrypt.compareSync(password, user.password);
@@ -122,7 +157,6 @@ async deleteUser(req, res) {
     }
 }
 
-
 async refresh(req, res) {
     try {
         const { refreshToken } = req.body;
@@ -152,7 +186,6 @@ async refresh(req, res) {
     }
 }
 
-
 async logout(req, res) {
     try {
         const { userId } = req.body;
@@ -173,12 +206,10 @@ async changePassword(req, res) {
     try {
         const { userId, currentPassword, newPassword, confirmNewPassword } = req.body;
 
-
          const errors = validationResult(req);
         if (!errors.isEmpty()) {
             return res.status(400).json({ errors: errors.array() });
         }
-
 
         const user = await User.findById(userId)
         if(!user){
@@ -201,9 +232,6 @@ async changePassword(req, res) {
     }
 }
 
-
-
-// !
   async createNews(req, res) {
     try {
       const { title, content } = req.body;
@@ -215,7 +243,57 @@ async changePassword(req, res) {
       return res.status(400).json({ message: 'Помилка створення новини' });
     }
   }
+async updateUser(req, res) {
+    try {
+        const { userId, firstname, lastname, email, gender, phoneNumber } = req.body;
+        
+        if (!req.user.roles.includes('ADMINISTRATOR')) {
+            return res.status(403).json({ message: 'У вас немає прав на оновлення користувача' });
+        }
+        
+        const user = await User.findByIdAndUpdate(
+            userId,
+            {
+                firstname,
+                lastname,
+                email,
+                gender,
+                phoneNumber
+            },
+            { new: true }
+        );
 
+        if (!user) {
+            return res.status(404).json({ message: 'Користувача не знайдено' });
+        }
+
+        return res.json({ message: 'Користувача успішно оновлено', user });
+    } catch (error) {
+        console.error(error);
+        return res.status(400).json({ message: 'Помилка оновлення користувача' });
+    }
+}
+
+async activate(req, res) {
+        try {
+            const { userId } = req.params
+
+            const user = await User.findById( userId)
+
+            if(!user || user.isActivated){
+                return res.status(400).json({message: 'невірний айді користувача або обліковий запис вже активний'})
+            }
+
+            user.isActivated = true
+            await user.save()
+
+            return res.status(400).json({message: 'обліковий запис вже активний , тепер ви можете здійснити вхід'})
+
+        } catch (error) {
+            console.log(error);
+            res.status(500).json({ message: 'server er' });
+        }
+    }
 }
 
 module.exports = new authController();

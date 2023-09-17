@@ -6,6 +6,7 @@ const User = new Schema({
     firstname: { type: String, required: true },
     lastname: { type: String, required: true },
     email: { type: String, unique: true, required: true },
+    isActivated: {type: Boolean, default: false},
     confirmPassword: { type: String, required: true },
     gender: { type: String, required: true },
     phoneNumber: { type: String, required: true }
