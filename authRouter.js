@@ -137,4 +137,6 @@ router.post('/logout', controller.logout)
 
 router.get('/activate/:userId', controller.activate)
 
+router.post('/forgotPassword', controller.forgotPassword)
+
 module.exports = router
