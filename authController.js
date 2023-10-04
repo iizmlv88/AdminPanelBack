@@ -35,13 +35,15 @@ class authController {
                 return res.status(400).json({ message: 'помилка реєстрації', errors: errors.array() });
             }
 
-            const { email, password } = req.body;
+            const { email, password, role } = req.body;
             const candidate = await User.findOne({ email });
             if (candidate) {
                 return res.status(400).json({ message: 'користувач з таким іменем вже існує' });
             }
             const hashPassword = bcrypt.hashSync(password, hash_password);
-            const userRole = await Role.findOne({ value: 'USER' });
+
+             const userRole = await Role.findOne({ value: role });
+            // const userRole = await Role.findOne({ value: 'USER' });
 
             // const userRole = await Role.findOne({value: 'ADMINISTRATOR'})
 
@@ -71,7 +73,7 @@ class authController {
                 },
             })
 
-            const activationLink = `http://localhost:5000/auth/activate/${user._id}`
+            const activationLink = `http://localhost:5000/api/User/activate/${user._id}`
 
             const mailOptions = {
                 to: email,
@@ -158,7 +160,7 @@ async deleteUser(req, res) {
     }
 }
 
-async refresh(req, res) {
+async RefreshToken(req, res) {
     try {
         const { refreshToken } = req.body;
         const existiogToken = await Token.findOne({refreshToken})
@@ -213,6 +215,7 @@ async changePassword(req, res) {
         }
 
         const user = await User.findById(userId)
+        console.log(userId, currentPassword, newPassword, confirmNewPassword );
         if(!user){
             return res.status(400).json({message: 'користувача не знайдено'})
         }
@@ -330,7 +333,7 @@ async forgotPassword(req, res) {
 
         const mailOptions = {
             to: email,
-            form: smtp_user,
+            from: smtp_user,
             subject: 'відновлення пароля',
             text: "",
             html:
